@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: testapp13
+  namespace: testapp13
+
+  annotations:
+    alb.ingress.kubernetes.io/group.name: rajplatform
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+
+spec:
+  ingressClassName: alb
+
+  rules:
+  - host: testapp13.rajplatform.online
+
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+
+        backend:
+          service:
+            name: testapp13
+
+            port:
+              number: 80

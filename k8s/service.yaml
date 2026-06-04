@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: testapp13
+  namespace: testapp13
+
+spec:
+  selector:
+    app: testapp13
+
+  ports:
+  - port: 80
+    targetPort: 8080
+
+  type: ClusterIP

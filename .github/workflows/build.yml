@@ -1,0 +1,102 @@
+name: Build, Push to ECR and Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+      AWS_ACCOUNT_ID: "443407534093"
+      ECR_REPOSITORY: springboot
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build JAR
+        run: mvn clean package
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::443407534093:role/GitHubActionsECRPushRole
+          aws-region: us-east-1
+
+      - name: Get GitOps Token From Secrets Manager
+        run: |
+          TOKEN=$(aws secretsmanager get-secret-value \
+            --secret-id github/gitops-token \
+            --query SecretString \
+            --output text)
+
+          echo "GITOPS_TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Verify Secret Access
+        run: |
+          aws secretsmanager get-secret-value \
+            --secret-id github/gitops-token \
+            --query Name \
+            --output text
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set Variables
+        run: |
+          echo "IMAGE_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+          echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_ENV
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+            -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${IMAGE_NAME}-${IMAGE_TAG} \
+            -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${IMAGE_NAME}-latest .
+
+      - name: Push Docker Images
+        run: |
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${IMAGE_NAME}-${IMAGE_TAG}
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${IMAGE_NAME}-latest
+
+      - name: Clone GitOps Repository
+        run: |
+          git clone https://x-access-token:$GITOPS_TOKEN@github.com/rajudruva2/eks-gitops-config.git
+
+      - name: Create GitOps Application Folder
+        run: |
+          mkdir -p eks-gitops-config/apps/${IMAGE_NAME}
+          cp -r k8s/* eks-gitops-config/apps/${IMAGE_NAME}/
+
+      - name: Update Deployment Image
+        run: |
+          sed -i "s|IMAGE_PLACEHOLDER|$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPOSITORY:${IMAGE_NAME}-latest|g" \
+          eks-gitops-config/apps/${IMAGE_NAME}/deployment.yaml
+
+      - name: Commit and Push GitOps Changes
+        run: |
+          cd eks-gitops-config
+
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add .
+
+          git commit -m "Deploy ${IMAGE_NAME}" || echo "No changes"
+
+          git remote set-url origin https://x-access-token:$GITOPS_TOKEN@github.com/rajudruva2/eks-gitops-config.git
+
+          git push origin HEAD:main
