@@ -2,7 +2,7 @@ import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import './styles.css';
 
-const API='http://localhost:8080/api';
+const API='http://localhost:3000/api';
 
 function App(){
   const [summary,setSummary]=useState({});
